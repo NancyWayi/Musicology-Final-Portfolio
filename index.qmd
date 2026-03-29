@@ -1,0 +1,652 @@
+---
+title: "NewJeans: Why Did They Explode?"
+subtitle: "A Computational Analysis of 4th Generation K-pop's Paradigm Shift"
+author: "Yi Wang"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    theme: flatly
+    code-fold: false
+    code-tools: true
+    self-contained: false
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{css, echo=FALSE}
+.parcoords line {
+  stroke-opacity: 0.6;
+}
+.table-caption {
+  margin-top: 10px;
+  font-style: italic;
+  text-align: center;
+}
+```
+
+```{r setup, include=FALSE}
+# ============================================================
+# Import data and packages
+# ============================================================
+library(tidyverse)
+library(DT)
+library(kableExtra)
+library(GGally)
+library(dendextend)
+
+# read data
+df_all <- read.csv("~/5K.csv")
+df_aespa <- read.csv("~/Aespa_title.csv")
+df_idle <- read.csv("~/Idle_title.csv")
+df_ive <- read.csv("~/Ive_title.csv")
+df_lesserafim <- read.csv("~/Lesserafim_title.csv")
+df_njs <- read.csv("~/NJS_title.csv")
+df_test <- read.csv("~/NJS_test.csv")
+
+# add group label
+df_aespa$Group <- "aespa"
+df_idle$Group <- "(G)I-DLE"
+df_ive$Group <- "IVE"
+df_lesserafim$Group <- "LE SSERAFIM"
+df_njs$Group <- "NewJeans"
+
+# combine all data
+df_combined <- bind_rows(df_aespa, df_idle, df_ive, df_lesserafim, df_njs)
+
+# feature
+feature_cols <- c("Acousticness", "Energy", "Tempo", "Loudness", "Valence", "Danceability")
+```
+
+## About
+
+### The "Top" Problem in 4th Generation K-pop
+
+In K-pop, there is a concept called **"Top group** ， which is when a group achieves overwhelming dominance across album sales, digital charts, public recognition, and cultural influence. From H.O.T (1st gen) to Girls' Generation and BIGBANG (2nd gen), to BTS and TWICE (3rd gen), each era has had its undisputed top group.
+
+But the 4th generation (groups debuting around 2018-2022) has a problem: no one has clearly reached the top. aespa, I-DLE, IVE, and LE SSERAFIM each have their strengths, unique concepts, self-production, elegant aesthetics, empowering messages, but none has achieved the kind of sweeping dominance seen in previous generations. Fans and critics often say: *"They're all too different to choose one."*
+
+### NewJeans: A "Meteoric" Debut
+
+Then came **NewJeans**. Debuting in July 2022 with minimal promotion and no fixed leader, they seemed to appear out of nowhere. Yet their debut tracks "Attention" and "Hype Boy" exploded across charts, and their "Y2K revival" aesthetic quickly became a cultural phenomenon.
+
+This raises the question: **Was their success accidental, or was there something fundamentally different about their music?**
+
+This study uses computational musicology to analyze NewJeans' audio features and compare them with other 4th generation girl groups, seeking to understand whether their "unique sound" contributed to their meteoric rise.
+
+### About This Study
+
+**Research Question:**  
+This study investigates why NewJeans, a 4th generation K-pop girl group, achieved rapid popularity despite debuting with minimal promotion. Specifically, it examines whether distinct audio features in their music—such as rhythm, timbre, harmonic structure, and overall sonic identity contributed to their meteoric rise compared to peer groups.
+
+**Research Focus / Scope:**  
+- Comparative analysis of **58 title tracks** from five 4th generation girl groups: NewJeans, aespa, (G)I-DLE, IVE, and LE SSERAFIM.  
+- Examination of **Spotify audio features** including Danceability, Energy, Loudness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, and Duration.  
+- In-depth analysis of NewJeans’ breakout track **“Hype Boy”** using:  
+  - Chromagram (harmonic content)  
+  - Self-Similarity Matrices (structural repetition and timbre consistency)  
+  - Tempogram Analysis (novelty curves, autocorrelation, Fourier transform)  
+- Clustering analysis to determine how closely NewJeans tracks are grouped based on audio features.  
+
+**Key Assumptions:**  
+1. Audio features extracted from Spotify tracks are reliable proxies for the sonic characteristics that listeners perceive.  
+2. Breakout success can be partially attributed to distinctive musical features, even though other factors (promotion, social media virality, visual aesthetics) play a role.  
+3. Seed-based clustering assumes that representative tracks capture the core musical style of each group.  
+4. Statistical and computational analyses can reveal patterns that correspond meaningfully to perceived uniqueness, memorability, and listener engagement.  
+
+This study combines **computational musicology, statistical analysis, and music theory** to explore how NewJeans’ musical identity distinguishes them within the competitive landscape of 4th generation K-pop.
+
+
+### Corpus
+
+```{r corpus-table, results='asis'}
+# columns data
+corpus_df <- data.frame(
+  Group = c("**NewJeans**", "aespa", "(G)I-DLE", "IVE", "LE SSERAFIM"),
+  Tracks = c(11, 12, 14, 12, 9),
+  Style = c("Y2K revival, lo-fi, UK garage, 'effortless'",
+            "Hyperpop, AI concept, futuristic",
+            "Self-produced, experimental, bold",
+            "Elegant, confident, luxurious",
+            "Self-empowerment, edgy, powerful")
+)
+
+# use kableExtra to make columns
+kable(corpus_df, 
+      caption = "Corpus: 5 Girl Groups, 58 Title Tracks",
+      align = "lcr",
+      col.names = c("Group", "Tracks", "Style Description"),
+      escape = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE,
+                position = "center") %>%
+  row_spec(0, bold = TRUE, background = "#2c3e50", color = "white") %>%
+  column_spec(1, bold = TRUE) %>%
+  footnote(general = "NewJeans is the focus of this analysis.")
+```
+
+**Total: 58 title tracks**
+
+---
+
+## Full Corpus Explorer
+
+```{r full-table}
+df_display <- df_combined %>%
+  select(
+    Group,
+    `Track Name` = Track.Name,
+    Tempo,
+    Energy,
+    Danceability,
+    Acousticness,
+    Loudness,
+    Valence
+  ) %>%
+  mutate(
+    Acousticness = round(Acousticness, 3),
+    Energy = round(Energy, 3),
+    Danceability = round(Danceability, 3),
+    Valence = round(Valence, 3),
+    Loudness = round(Loudness, 1),
+    Tempo = round(Tempo, 1)
+  )
+
+datatable(
+  df_display,
+  options = list(pageLength = 15, order = list(list(0, 'asc'))),
+  filter = 'top',
+  rownames = FALSE,
+  caption = htmltools::tags$caption(
+    style = 'caption-side: bottom; text-align: center;',
+    'Table 1: All 58 title tracks with Spotify audio features'
+  )
+) %>%
+  formatStyle(
+    'Group',
+    target = 'row',
+    backgroundColor = styleEqual("NewJeans", "#FFF9E6")
+  )
+```
+
+---
+
+## Feature Comparison
+
+### Parallel Coordinates Plot
+
+```{r parallel-coords, fig.width=12, fig.height=7}
+# average value preperation
+df_avg <- df_combined %>%
+  group_by(Group) %>%
+  summarise(
+    Acousticness = mean(Acousticness),
+    Energy = mean(Energy),
+    Tempo = (mean(Tempo) - 60) / 100,  # 归一化 Tempo (60-160 缩放到 0-1)
+    Loudness = (mean(Loudness) + 20) / 20,  # 归一化 Loudness (-20-0 缩放到 0-1)
+    Valence = mean(Valence),
+    Danceability = mean(Danceability)
+  )
+
+# 转换为长格式用于平行坐标图
+df_avg_long <- df_avg %>%
+  pivot_longer(cols = -Group, names_to = "Feature", values_to = "Value")
+
+# feature order
+feature_order <- c("Acousticness", "Energy", "Tempo", "Loudness", "Valence", "Danceability")
+df_avg_long$Feature <- factor(df_avg_long$Feature, levels = feature_order)
+
+# Plot
+ggplot(df_avg_long, aes(x = Feature, y = Value, color = Group, group = Group)) +
+  geom_line(size = 1.5) +
+  geom_point(size = 3) +
+  scale_color_manual(values = c(
+    "NewJeans" = "#E31A23",
+    "aespa" = "#1F77B4",
+    "(G)I-DLE" = "#2CA02C",
+    "IVE" = "#FF7F0E",
+    "LE SSERAFIM" = "#9467BD"
+  )) +
+  labs(title = "Feature Comparison: NewJeans vs Other 4th Gen Groups",
+       subtitle = "Each line represents the average of all songs from one group",
+       x = "Feature", y = "Normalized Value (0-1)") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Exact Values
+
+```{r exact-values}
+# NewJeans values
+nj_values <- df_avg %>%
+  filter(Group == "NewJeans") %>%
+  select(-Group) %>%
+  pivot_longer(cols = everything(), names_to = "Feature", values_to = "NewJeans")
+
+# average values for all groups
+all_values <- df_avg %>%
+  pivot_longer(cols = -Group, names_to = "Feature", values_to = "Value") %>%
+  pivot_wider(names_from = Group, values_from = Value)
+
+
+
+cat("NEWJEANS FEATURE VALUES (Normalized 0-1)\n")
+
+print(nj_values)
+
+
+
+cat("ALL GROUPS COMPARISON\n")
+
+print(all_values)
+```
+
+
+### Analysis
+
+Based on the exact values above:
+
+**1. Acousticness = 0.249 — Highest among all groups**
+
+NewJeans scores significantly higher in acousticness than any other group (next closest is aespa at 0.133). This means their music relies more on organic instruments—guitars, live drums, natural reverb—rather than synthetic sounds. This is the sonic foundation of their "warm, nostalgic" Y2K aesthetic.
+
+**2. Energy = 0.749 — Lowest among all groups**
+
+While other groups range from 0.759 to 0.850, NewJeans sits at the bottom. This low energy is the source of their signature "effortless" feel. They don't need to be loud or aggressive to capture attention. The music breathes rather than pushes.
+
+**3. Tempo = 0.635 — Highest (tied with IVE)**
+
+This creates a unique paradox: **fastest tempo + lowest energy = rushing but relaxed**. The fast beat provides forward momentum, but the low energy keeps it from feeling frantic. This is the essence of "chill but danceable."
+
+**4. Loudness = 0.759 — Weakest among all groups**
+
+NewJeans is the quietest group. Their music preserves more dynamic range—quieter verses, fuller choruses—creating a more intimate, breathing listening experience. They don't need to be loud to be heard.
+
+**5. Valence = 0.634 — Highest (tied with LE SSERAFIM)**
+
+NewJeans' music feels the most positive and joyful. This high valence, combined with high acousticness, creates a warm, nostalgic emotional palette—music that sounds like a fond memory rather than a present scream.
+
+**6. Danceability = 0.766 — 2nd Highest (behind LE SSERAFIM at 0.805)**
+
+Despite having the lowest energy and quietest dynamics, NewJeans ranks second in danceability. This is the signature of **syncopated rhythm** (UK garage / 2-step influence). You can dance not because the music is loud or fast, but because the groove is infectious.
+
+
+
+## Chromagram of "Hype Boy"
+
+For this analysis, I selected **"Hype Boy"** — NewJeans' debut title track and their first breakout hit. Released in July 2022, this song introduced the group's signature sound to the world and became an instant viral sensation. As a debut track that defined a group's identity, "Hype Boy" serves as an ideal case study for understanding the musical DNA that made NewJeans stand out. I chose to focus on a single representative song because each group's core style is most clearly expressed in their breakout hit, which captures the essence of what makes them unique.
+
+```{r load-chroma}
+# Load chromagram CSV exported from Sonic Visualiser
+chroma_data <- read.csv("~/HBchroma.csv")
+
+# Check data structure
+cat("Chromagram dimensions:", dim(chroma_data), "\n")
+cat("Column names:", paste(names(chroma_data), collapse=", "), "\n")
+```
+
+```{r plot-chroma, fig.width=12, fig.height=6}
+# Reshape data for heatmap
+library(reshape2)
+
+# Identify columns (assuming first column is time, columns 2-13 are pitch classes)
+time_col <- names(chroma_data)[1]
+pitch_cols <- names(chroma_data)[2:13]
+
+# Extract time and chroma matrix
+time_points <- chroma_data[[time_col]]
+chroma_matrix <- as.matrix(chroma_data[, pitch_cols])
+
+# Prepare data for ggplot
+chroma_long <- melt(chroma_matrix, varnames = c("time_idx", "pitch_idx"), value.name = "intensity")
+chroma_long$time <- time_points[chroma_long$time_idx]
+
+# Pitch labels (C, C#, D, ..., B)
+pitch_labels <- c("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+chroma_long$pitch <- pitch_labels[chroma_long$pitch_idx]
+
+# Create heatmap with viridis color scale
+ggplot(chroma_long, aes(x = time, y = pitch, fill = intensity)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "viridis", name = "Intensity") +
+  labs(title = "Chromagram: NewJeans - Hype Boy",
+       subtitle = "Pitch class distribution over time | Even spread indicates harmonic ambiguity",
+       x = "Time (seconds)", y = "Pitch Class") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+```
+
+```{r chroma-stats}
+# Calculate average chroma distribution
+avg_chroma <- colMeans(chroma_matrix)
+names(avg_chroma) <- pitch_labels
+
+# Find strongest pitches
+top_pitches <- sort(avg_chroma, decreasing = TRUE)[1:3]
+
+cat("AVERAGE CHROMA INTENSITY BY PITCH\n")
+print(round(avg_chroma, 3))
+
+cat("\nStrongest pitch classes:\n")
+for(i in 1:3) {
+  cat("  ", names(top_pitches)[i], ": ", round(top_pitches[i], 3), "\n", sep="")
+}
+```
+
+### Analysis
+Looking at the chromagram data, three pitch classes stand out clearly: D (1.564), G (1.307), and A# (1.234). Everything else like F# at 0.165 and C# at 0.225 is much weaker. This tells us that "Hype Boy" has a clear harmonic center around D, with G and A# playing important supporting roles. What's interesting is the A#. In a typical major key, you'd expect A natural (the dominant), not A#. That flat 7th gives the song a slightly different color, not dramatically strange, but just enough to make it feel less predictable than standard pop. The other pitch classes are so low that the harmonic content feels focused and repetitive, which matches what we hear in the track: a smooth, hypnotic groove that doesn't jump around between different keys or throw in unexpected surprises. So overall, "Hype Boy" isn't harmonically complex or ambiguous, it's actually very consistent, built around a stable D-centered framework with a few carefully chosen pitches (G and A#) that give it its recognizable character.
+
+
+
+## Self-Similarity Matrices
+
+Self-similarity matrices (SSM) reveal how different sections of a song relate to each other. A dark diagonal line represents self-identity (a moment compared to itself). Patterns off the diagonal show repetition — for example, if the chorus sounds similar to the verse, those time regions will appear as bright blocks.
+
+For this analysis, I generated two SSMs for "Hype Boy": one using **chroma features** (harmonic content) and one using **MFCC features** (timbre / texture).
+
+### Chroma Self-Similarity Matrix
+
+```{r load-chroma-ssm, fig.width=12, fig.height=10}
+# Load chromagram data
+chroma_data <- read.csv("~/HBchroma.csv")
+
+# Remove time column, keep only pitch classes
+chroma_matrix <- as.matrix(chroma_data[, -1])
+
+# Downsample for visualization (keep every 4th frame to reduce size)
+# Original: 3860 frames, downsampled: 965 frames (still captures structure)
+downsample_factor <- 4
+chroma_downsampled <- chroma_matrix[seq(1, nrow(chroma_matrix), downsample_factor), ]
+
+# Compute self-similarity matrix using cosine similarity (faster than correlation)
+library(proxy)
+chroma_ssm <- as.matrix(dist(chroma_downsampled, method = "cosine"))
+chroma_ssm <- 1 - chroma_ssm  # Convert distance to similarity
+
+# Plot
+library(reshape2)
+library(viridis)
+
+ggplot(melt(chroma_ssm), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "viridis", name = "Similarity") +
+  labs(title = "Chroma Self-Similarity Matrix: NewJeans - Hype Boy",
+       subtitle = "Bright blocks indicate structurally similar sections | Helps identify verse-chorus patterns",
+       x = "Time Frame (downsampled)", y = "Time Frame (downsampled)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+
+### MFCC Self-Similarity Matrix (Timbre)
+
+```{r load-mfcc-ssm, fig.width=12, fig.height=10}
+# Load MFCC data
+mfcc_data <- read.csv("~/HBMFCC.csv")
+
+# Remove time column, keep only MFCC bins
+mfcc_matrix <- as.matrix(mfcc_data[, -1])
+
+# Remove constant columns (artifacts from Sonic Visualiser export)
+mfcc_matrix <- mfcc_matrix[, apply(mfcc_matrix, 2, var) > 0.1]
+
+# Downsample for visualization
+downsample_factor <- 8  # MFCC has more frames, downsample more
+mfcc_downsampled <- mfcc_matrix[seq(1, nrow(mfcc_matrix), downsample_factor), ]
+
+# Compute self-similarity matrix
+mfcc_ssm <- as.matrix(dist(mfcc_downsampled, method = "cosine"))
+mfcc_ssm <- 1 - mfcc_ssm
+
+# Plot
+ggplot(melt(mfcc_ssm), aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "viridis", name = "Similarity") +
+  labs(title = "MFCC Self-Similarity Matrix (Timbre): NewJeans - Hype Boy",
+       subtitle = "Reveals timbral consistency and changes across the song structure",
+       x = "Time Frame (downsampled)", y = "Time Frame (downsampled)") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank())
+```
+
+### Analysis
+
+**Chroma SSM (Harmonic Structure)**
+
+The Chroma SSM reveals strong harmonic repetition throughout "Hype Boy." The regular block patterns off the diagonal indicate that the song's chord progressions repeat in a predictable, cyclical manner. Verses and choruses share similar harmonic materials, meaning the song relies on repeated and stable chord loops rather than dramatic harmonic shifts.
+
+**MFCC SSM (Timbre / Texture)**
+
+The MFCC SSM shows highly consistent timbre across the entire track. The uniformly bright colors indicate that the song's instrumentation, vocal layering, and production texture remain stable from beginning to end. There are no sudden changes in sound design or abrupt stylistic shifts.
+
+Together, these two matrices reveal a deliberate production strategy. The Chroma SSM shows high structural repetition, which helps listeners remember the song quickly. The MFCC SSM shows timbral consistency, which creates a smooth, low-cognitive-load listening experience that is easy to replay.
+
+This combination of harmonic repetition and timbral stability produces a listening experience that feels cohesive, effortless, and loop-friendly. There is no sudden tension, no jarring contrast, and no unexpected complexity.
+
+**Why This Matters for "Hype Boy"**
+
+This balance between structural repetition and timbral stability reflects a modern production strategy where emotional continuity and replayability are prioritized over dramatic contrast. It helps explain why "Hype Boy" became widely popular: it is easy to remember, comfortable to listen to, and well-suited for streaming and short-form video platforms.
+
+The chroma SSM reveals strong harmonic repetition, while the MFCC SSM shows highly consistent timbre across the track. Together, these features create a smooth, cohesive, and highly memorable listening experience, which helps explain why "Hype Boy" became widely popular.
+
+
+
+## Tempogram Analysis
+
+### Novelty Curve
+
+```{r novelty, fig.width=10, fig.height=4}
+nf <- read.csv("~/HBnf.csv")
+
+ggplot(nf, aes(x = nf[[1]], y = nf[[2]])) +
+  geom_line() +
+  labs(title = "Novelty Curve", x = "Time (s)", y = "Novelty") +
+  theme_minimal()
+```
+
+The novelty function reveals the temporal distribution of structural changes throughout Hype Boy. Several prominent peaks appear around 20–40 seconds and 100–120 seconds, indicating moments of relatively stronger musical transitions. However, the curve is not dominated by dense or frequent high peaks; instead, it shows a continuous presence of smaller fluctuations across the entire track.
+This suggests that the song does not rely on abrupt or high-intensity contrasts (e.g., dramatic “drops”) to create interest. Rather, it employs a gradual and layered progression, where changes in texture, instrumentation, or rhythmic density accumulate over time. As a result, the listening experience is perceived as smooth and flowing, with a sense of ongoing motion rather than interruption. This type of structural design supports sustained engagement and contributes to the song’s high replayability.
+
+
+### Autocorrelation Tempogram (ACT)
+
+```{r act, fig.width=10, fig.height=5}
+act <- read.csv("~/HBact.csv")
+
+act_matrix <- as.matrix(act[, -1])
+act_fill_range <- range(act_matrix, na.rm = TRUE)
+
+act |> 
+  pivot_longer(-1, names_to = "tempo") |> 
+  mutate(
+    tempo = as.numeric(gsub("[^0-9.]", "", tempo)),
+    value = sqrt(value)
+  ) |> 
+  ggplot(aes(x = .data[[names(act)[1]]], y = tempo, fill = value)) +
+  geom_raster() +
+  scale_y_continuous(trans = c("reciprocal", "reverse"), breaks = seq(50, 350, 100)) +
+  scale_fill_viridis_c(limits = c(0, sqrt(act_fill_range[2])), guide = "none") +
+  labs(x = "Time (s)", y = "Tempo (BPM)") +
+  theme_classic()
+```
+
+The autocorrelation tempogram highlights a stable and clearly defined periodic pulse, with the strongest energy concentrated around approximately 50 BPM, alongside its metrical multiples (e.g., 100 and 150 BPM). This indicates the presence of a consistent underlying beat that is perceptually salient to listeners.
+Such a structure facilitates embodied entrainment: listeners can easily synchronize bodily movement (e.g., head nodding or swaying) with the music. At the same time, the visibility of multiple metrical layers suggests the coexistence of both primary beats and finer rhythmic subdivisions. This combination is characteristic of groove-oriented styles such as R&B and UK garage, where rhythmic subtlety coexists with overall stability.
+In Hype Boy, this results in a rhythmic feel that is not forceful or aggressive, but instead light, elastic, and naturally engaging. The groove is strong without being overwhelming, encouraging repeated listening through physical familiarity and comfort.
+
+
+### Fourier Tempogram (DFT)
+
+```{r dft, fig.width=10, fig.height=5}
+dft <- read.csv("~/HBDFT.csv")
+
+fill_range <- range(dft[,-1], na.rm = TRUE)   
+
+dft |> 
+  pivot_longer(-1, names_to = "tempo") |> 
+  mutate(
+    tempo = as.numeric(gsub("[^0-9.]", "", tempo)),
+    time = .data[[names(dft)[1]]]
+  ) |> 
+  ggplot(aes(x = time, y = tempo, fill = value)) +
+  geom_raster() +
+  scale_fill_viridis_c(option = "inferno", limits = fill_range) +
+  theme_minimal()
+```
+
+The Fourier tempogram further emphasizes the periodic organization of rhythmic elements in the track. Distinct horizontal bands are visible around several tempo-related frequency regions (e.g., approximately 150, 250, and 400), indicating strong and persistent periodicities.
+These patterns demonstrate that the rhythmic structure is not random or densely layered, but rather organized into clear, repeating cycles. Notably, the intensity of these bands increases in specific sections (again around 20–40 seconds and 100–115 seconds), suggesting moments where rhythmic energy is selectively reinforced.
+This indicates that the song’s “hook” is not solely melodic but also rhythmic. The listener is not only remembering a tune, but also internalizing a recurring rhythmic pattern. Such periodic clarity enhances memorability while maintaining a sense of continuity, avoiding the need for abrupt structural contrasts.
+
+
+### Interpretation
+
+Taken together, these three representations suggest that Hype Boy is built upon a foundation of rhythmic stability combined with gradual, fine-grained variation. The novelty function shows that structural change is distributed and controlled rather than explosive; the autocorrelation tempogram reveals a steady and easily internalized pulse; and the Fourier tempogram confirms the presence of clear and repetitive rhythmic cycles.
+This combination results in a listening experience that is smooth, lightweight, and highly loopable. Instead of relying on high-intensity contrasts typical of mainstream K-pop, the track emphasizes continuity, groove, and subtle evolution. From a stylistic perspective, this aligns closely with NewJeans’ broader aesthetic: understated, natural, and grounded in everyday listening contexts.
+Such a design is particularly well-suited to contemporary music consumption environments, where replayability, background listening, and short-form media integration are crucial. The balance between recognizability and low perceptual load allows the track to be both distinctive and non-fatiguing, helping to explain its widespread appeal and viral succes
+
+
+## Clustering
+
+```{r clustering, fig.width=10, fig.height=6}
+# Load data and display basic information
+df_all <- read.csv('5K.csv')
+df_seed <- read.csv('NJS_test.csv')
+
+cat("Total songs:", nrow(df_all), "\n")
+cat("Group distribution:\n")
+print(table(df_all$Artist.Name.s.))
+
+# Extract seed songs
+seed_urls <- df_seed[,1]
+seed_songs <- df_all$Track.Name[df_all$Track.URI %in% seed_urls]
+
+cat("\nSeed songs (5 NewJeans tracks):\n")
+for(i in 1:length(seed_songs)) {
+  cat("  ", i, ". ", seed_songs[i], "\n", sep="")
+}
+
+# Prepare cleaned feature matrix
+library(dplyr)
+library(tidyr)
+library(recipes)
+library(stringr)
+
+df_clean <- df_all %>%
+  select(`Track Name` = Track.Name,
+         Artist = Artist.Name.s.,
+         Danceability, Energy, Loudness, Speechiness,
+         Acousticness, Instrumentalness, Liveness,
+         Valence, Tempo, `Duration (ms)` = Duration..ms.) %>%
+  drop_na() %>%
+  mutate(`Track Name` = str_trunc(`Track Name`, 36))
+
+nrc_juice <- recipe(
+  `Track Name` ~ Danceability + Energy + Loudness + Speechiness +
+    Acousticness + Instrumentalness + Liveness + Valence + Tempo + `Duration (ms)`,
+  data = df_clean
+) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors()) %>%
+  prep(df_clean) %>%
+  juice() %>%
+  column_to_rownames("Track Name")
+
+nrc_dist <- dist(nrc_juice, method = "euclidean")
+
+# Hierarchical clustering visualization
+par(mfrow=c(1,3))
+for(method in c("single", "average", "complete")) {
+  hc <- hclust(nrc_dist, method = method)
+  plot(hc, main=paste(method, "linkage"), xlab="", sub="", cex=0.7)
+}
+par(mfrow=c(1,1))
+
+# Compute distances to seed song centroid and rank songs
+seed_indices <- which(rownames(nrc_juice) %in% str_trunc(seed_songs, 36))
+seed_names <- rownames(nrc_juice)[seed_indices]
+
+cat("Found", length(seed_indices), "seed songs:\n")
+for(s in seed_names) cat("  ✓", s, "\n")
+
+if(length(seed_indices) >= 2) {
+  seed_center <- colMeans(nrc_juice[seed_indices,])
+
+  distances <- apply(nrc_juice, 1, function(x) {
+    sqrt(sum((x - seed_center)^2))
+  })
+
+  results <- data.frame(
+    song = names(distances),
+    distance = distances
+  ) %>%
+    arrange(distance) %>%
+    mutate(rank = row_number())
+
+  results$group <- df_clean$Artist[match(results$song, df_clean$`Track Name`)]
+
+  target_results <- results %>%
+    filter(group == "NewJeans", !song %in% seed_names)
+
+  knitr::kable(head(results, 20),
+               caption = "Top 20 Songs Closest to Seed Tracks")
+}
+
+```
+
+### Conclusion 
+```{r clustering-conclusion, echo=FALSE}
+# Clustering Conclusion: dynamically generate summary text
+
+if(exists("first_target") && !is.na(first_target)) {
+
+  cat("## Clustering Conclusion\n\n")
+  cat("This clustering analysis evaluated how well NewJeans seed songs could retrieve the rest of the group’s tracks based on audio features.\n\n")
+  
+  cat("**Key Results:**\n")
+  cat("  - Total NewJeans songs:", total_nj, "\n")
+  cat("  - Seed songs used:", length(seed_indices), "\n")
+  cat("  - Remaining target songs to find:", total_nj - length(seed_indices), "\n")
+  cat("  - Number of target songs found in top 10 closest matches:", 
+      sum(results$group[1:10] == "NewJeans" & !results$song[1:10] %in% seed_names), "\n")
+  cat("  - Number of target songs found in top 20 closest matches:", 
+      sum(results$group[1:20] == "NewJeans" & !results$song[1:20] %in% seed_names), "\n\n")
+  
+  cat("**Interpretation:**\n")
+  cat("The model demonstrates moderate ability to identify NewJeans tracks based on audio features alone. While some target songs appear among the closest matches early on, overall recall is limited. This suggests that although NewJeans tracks share distinctive characteristics, their audio feature space partially overlaps with other 4th generation K-pop groups, making precise clustering challenging.\n")
+}
+```
+
+The model shows moderate ability to identify NewJeans songs. The first correct retrieval appears relatively early, but overall recall remains limited. This suggests that while NewJeans songs share some common audio features, their feature space overlaps substantially with other K-pop groups, making precise clustering challenging.
+
+## Summary and Conclusion
+
+This computational analysis of NewJeans and other 4th generation K-pop girl groups provides several key insights into why NewJeans achieved rapid popularity despite debuting with minimal promotion.
+
+**Corpus-Level Observations:**  
+- Across 58 title tracks from five groups, NewJeans stands out for its high acousticness, moderate energy, and elevated danceability.  
+- Their music balances organic instrumentation (guitars, natural reverb) with approachable tempos, creating a warm, nostalgic, and effortlessly engaging sonic identity.  
+- Compared to peers, NewJeans occupies a distinctive feature space that emphasizes groove and subtle rhythmic complexity rather than loud, high-energy dynamics.  
+
+**Track-Level Analyses:**  
+- **Chromagram of "Hype Boy"** shows a stable harmonic center around D, with supporting pitches G and A# adding color without introducing unpredictability.  
+- **Self-Similarity Matrices (SSMs)** reveal high structural repetition and timbral consistency, indicating deliberate production choices that favor replayability and listener comfort.  
+- **Tempogram Analysis** demonstrates rhythmic stability:  
+  - The novelty curve shows gradual structural changes rather than abrupt contrasts.  
+  - Autocorrelation tempograms highlight a clear underlying beat and its metrical multiples, promoting embodied entrainment.  
+  - Fourier tempograms emphasize recurring rhythmic cycles that reinforce memorability without relying on melodic hooks alone.  
+
+**Clustering Insights:**  
+- Using audio feature clustering, the model successfully identifies NewJeans seed songs and ranks them closely among other tracks.  
+- While the first correct retrieval appears early, overall recall is moderate, indicating that although NewJeans shares some features with other groups, their combination of acoustic warmth, moderate energy, and rhythmic subtlety is distinctive enough to be recognized computationally.  
+
+**Overall Conclusion:**  
+NewJeans’ meteoric rise appears rooted in a carefully calibrated musical identity: their tracks are stylistically cohesive, rhythmically clear, harmonically stable, and emotionally warm. These qualities make the music easily recognizable, comfortable to listen to repeatedly, and highly engaging across streaming and short-form media platforms. From a computational perspective, their audio features position them uniquely among 4th generation girl groups, offering a plausible explanation for their rapid success and cultural impact.  
+---
